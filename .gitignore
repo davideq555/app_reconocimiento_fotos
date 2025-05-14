@@ -78,3 +78,8 @@ db.sqlite3
 # Archivos de caché de Python
 .pytest_cache/
 .mypy_cache/
+
+# Archivos de media
+media/
+media/*
+
