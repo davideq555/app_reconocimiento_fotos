@@ -124,11 +124,6 @@ class MainWindow(QMainWindow):
         self.log_area = QTextEdit()
         self.log_area.setReadOnly(True)
         
-        # Botón para guardar resultados
-        self.save_btn = QPushButton("Guardar Resultados")
-        self.save_btn.clicked.connect(self.save_results)
-        self.save_btn.setEnabled(False)
-        
         # Agregar widgets al layout
         layout.addLayout(folder_layout)
         layout.addLayout(model_layout)
@@ -136,7 +131,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.progress_bar)
         layout.addWidget(QLabel("Registro:"))
         layout.addWidget(self.log_area)
-        layout.addWidget(self.save_btn)
         
         # Estilos
         self.setStyleSheet("""
@@ -205,7 +199,6 @@ class MainWindow(QMainWindow):
         self.results = results
         self.process_btn.setEnabled(True)
         self.process_btn.setText("Procesar Imágenes")
-        self.save_btn.setEnabled(True)
         self.log("Procesamiento completado")
         
         # Mostrar resumen
@@ -226,40 +219,6 @@ class MainWindow(QMainWindow):
         
         self.log(f"Resumen: {success} de {total} imágenes procesadas correctamente")
     
-    def save_results(self):
-        if not self.results:
-            QMessageBox.warning(self, "Error", "No hay resultados para guardar")
-            return
-            
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, 
-            "Guardar Resultados", 
-            "", 
-            "JSON Files (*.json);;Text Files (*.txt)"
-        )
-        
-        if file_path:
-            try:
-                # Formatear los resultados para guardar
-                formatted_results = {}
-                for filename, result in self.results.items():
-                    if isinstance(result, dict):
-                        formatted_results[filename] = {
-                            'success': result.get('success', False),
-                            'numeros_encontrados': result.get('numeros_encontrados', []),
-                            'mensaje': result.get('mensaje', '')
-                        }
-                    else:
-                        formatted_results[filename] = str(result)
-                
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    json.dump(formatted_results, f, indent=4, ensure_ascii=False)
-                
-                self.log(f"Resultados guardados en: {file_path}")
-                QMessageBox.information(self, "Éxito", "Resultados guardados correctamente")
-            except Exception as e:
-                self.log(f"Error al guardar resultados: {str(e)}")
-                QMessageBox.critical(self, "Error", f"Error al guardar: {str(e)}")
     
     def log(self, message):
         self.log_area.append(f"> {message}")
