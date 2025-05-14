@@ -1,0 +1,80 @@
+# Entornos virtuales
+venv/
+env/
+ENV/
+.venv/
+
+# Archivos de entorno
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Archivos de configuración de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Archivos de configuración de IDEs y editores
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Archivos de resultados
+data/
+results/
+*.json
+!requirements*.txt
+
+# Archivos de caché de Ollama
+.ollama/
+
+# Archivos de registro
+*.log
+logs/
+
+# Archivos temporales
+*.tmp
+*.bak
+*~
+
+# Archivos de Jupyter Notebook
+.ipynb_checkpoints
+
+# Archivos de sistema operativo
+.DS_Store
+Thumbs.db
+
+# Archivos de base de datos
+*.sqlite3
+*.db
+
+# Archivos de configuración local
+local_settings.py
+db.sqlite3
+
+# Archivos de caché de Python
+.pytest_cache/
+.mypy_cache/
