@@ -36,42 +36,96 @@ class ImageProcessor:
         unique_numbers = list(set(int(num) for num in numbers))
         return unique_numbers
     
-    def add_watermark(self, image_path, output_path, text="COPIA", opacity=0.5):
-        """Agrega una marca de agua a la imagen"""
+    def add_watermark(self, image_path, output_path, text="COPIA", opacity=0.3, quality=85):
+        """
+        Agrega una marca de agua repetitiva a la imagen, redimensionándola primero para mejor rendimiento.
+        
+        Args:
+            image_path: Ruta de la imagen original
+            output_path: Ruta donde se guardará la imagen con marca de agua
+            text: Texto de la marca de agua
+            opacity: Opacidad de la marca de agua (0.0 a 1.0)
+            quality: Calidad de la imagen de salida (1-100)
+        """
         try:
             # Abrir la imagen
-            base_image = Image.open(image_path).convert("RGBA")
-            
-            # Crear una imagen para la marca de agua
-            txt = Image.new('RGBA', base_image.size, (255, 255, 255, 0))
-            
-            # Configurar la fuente (usando una fuente por defecto si no se encuentra la especificada)
-            try:
-                font_size = int(min(base_image.size) / 10)  # Tamaño de fuente relativo al tamaño de la imagen
-                font = ImageFont.truetype("arial.ttf", font_size)
-            except:
-                # Si no se puede cargar la fuente, usar la fuente por defecto
-                font = ImageFont.load_default()
-            
-            # Dibujar el texto en el centro
-            d = ImageDraw.Draw(txt)
-            text_width, text_height = d.textsize(text, font=font)
-            position = ((base_image.width - text_width) // 2, 
-                       (base_image.height - text_height) // 2)
-            
-            # Dibujar el texto con un borde para mejor visibilidad
-            d.text(position, text, font=font, fill=(255, 255, 255, int(255 * opacity)), 
-                  stroke_width=3, stroke_fill=(0, 0, 0, int(255 * opacity)))
-            
-            # Combinar la imagen original con la marca de agua
-            watermarked = Image.alpha_composite(base_image, txt)
-            
-            # Guardar la imagen resultante
-            if output_path.lower().endswith(('.png', '.jpg', '.jpeg')):
-                watermarked = watermarked.convert('RGB')  # Convertir a RGB para JPEG
-            
-            watermarked.save(output_path)
-            return True
+            with Image.open(image_path) as img:
+                # Convertir a RGBA si es necesario
+                if img.mode != 'RGBA':
+                    img = img.convert('RGBA')
+                
+                # Redimensionar la imagen para hacerla más manejable (25% del tamaño original)
+                original_size = img.size
+                new_size = (int(original_size[0] * 0.25), int(original_size[1] * 0.25))
+                img = img.resize(new_size, Image.Resampling.LANCZOS)
+                
+                # Crear una capa para la marca de agua
+                watermark = Image.new('RGBA', img.size, (0, 0, 0, 0))
+                
+                # Configurar la fuente con un tamaño fijo más grande
+                try:
+                    # Tamaño base para la fuente (ajustar según sea necesario)
+                    base_font_size = max(24, int(min(img.size) / 15))
+                    font = ImageFont.truetype("arial.ttf", base_font_size)
+                except:
+                    # Si no se puede cargar la fuente, usar la predeterminada
+                    font = ImageFont.load_default()
+                
+                # Crear un dibujo temporal para calcular el tamaño del texto
+                temp_draw = ImageDraw.Draw(Image.new('RGBA', (1, 1)))
+                
+                # Usar textbbox para obtener las dimensiones del texto
+                bbox = temp_draw.textbbox((0, 0), text, font=font)
+                text_width = bbox[2] - bbox[0]
+                text_height = bbox[3] - bbox[1]
+                
+                # Espaciado entre marcas de agua
+                spacing_x = int(text_width * 3)  # Aumentar el espaciado
+                spacing_y = int(text_height * 3)
+                
+                # Crear un dibujo en la capa de marca de agua
+                draw = ImageDraw.Draw(watermark)
+                
+                # Dibujar la marca de agua en un patrón de tablero de ajedrez
+                for i in range(-spacing_x, img.width + spacing_x, spacing_x):
+                    for j in range(-spacing_y, img.height + spacing_y, spacing_y):
+                        # Posición con desplazamiento para filas impares
+                        x = i + ((j // spacing_y) % 2) * (spacing_x // 2)
+                        y = j
+                        
+                        # Dibujar el texto con borde para mejor visibilidad
+                        # Primero el borde
+                        border_opacity = int(255 * opacity * 0.7)  # Borde ligeramente más transparente
+                        for x_offset in [-2, 0, 2]:
+                            for y_offset in [-2, 0, 2]:
+                                if x_offset != 0 or y_offset != 0:  # No dibujar en la posición central
+                                    draw.text(
+                                        (x + x_offset, y + y_offset),
+                                        text,
+                                        font=font,
+                                        fill=(0, 0, 0, border_opacity)
+                                    )
+                        # Luego el texto principal
+                        draw.text(
+                            (x, y),
+                            text,
+                            font=font,
+                            fill=(255, 255, 255, int(255 * opacity))
+                        )
+                
+                # Rotar ligeramente la marca de agua (15 grados en lugar de 30)
+                watermark = watermark.rotate(15, resample=Image.BICUBIC, expand=False)
+                
+                # Combinar la imagen original con la marca de agua
+                result = Image.alpha_composite(img, watermark)
+                
+                # Convertir a RGB si es necesario para el formato de salida
+                if output_path.lower().endswith(('.jpg', '.jpeg')):
+                    result = result.convert('RGB')
+                
+                # Guardar la imagen con calidad reducida
+                result.save(output_path, quality=quality, optimize=True)
+                return True
             
         except Exception as e:
             print(f"Error al agregar marca de agua: {str(e)}")
