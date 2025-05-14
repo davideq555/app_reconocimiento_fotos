@@ -200,8 +200,12 @@ class ImageProcessor:
                         # Crear directorio de salida si no existe
                         os.makedirs(output_dir, exist_ok=True)
                         
-                        # Generar nombre de archivo con formato nXX_nYY
-                        nombre_base = "_n".join([""] + [str(num) for num in sorted(numeros_encontrados)]).lstrip("_")
+                        # Obtener el nombre del archivo original sin extensión
+                        original_name = os.path.splitext(os.path.basename(image_path))[0]
+                        
+                        # Generar nombre de archivo con formato: nombre_original_nXX_nYY
+                        nums_str = "_n".join([""] + [str(num) for num in sorted(numeros_encontrados)]).lstrip("_")
+                        nombre_base = f"{original_name}_{nums_str}"
                         extension = os.path.splitext(image_path)[1].lower()
                         
                         # Asegurar que la extensión sea compatible
