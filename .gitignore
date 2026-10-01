@@ -36,6 +36,7 @@ wheels/
 # Archivos de configuración de IDEs y editores
 .idea/
 .vscode/
+.devin/
 *.swp
 *.swo
 *~

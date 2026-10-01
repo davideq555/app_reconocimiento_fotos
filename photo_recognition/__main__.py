@@ -1,4 +1,4 @@
-from photo_recognition.ui import main
+from .ui import main
 
 
 if __name__ == '__main__':
