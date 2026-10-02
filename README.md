@@ -1,6 +1,6 @@
 # Photo Recognition
 
-A Python desktop application that finds participant numbers in photos using **Ollama, OpenAI, Gemini, or an OpenAI-compatible vision service**. The unified Tkinter interface uses **ttkbootstrap**, with light/dark themes, a results table, progress counters, an activity log, cancellation, and CSV export.
+A Python desktop application that finds participant numbers in photos using **Ollama, OpenAI, Gemini, or an OpenAI-compatible vision service**. The unified Tkinter interface uses **ttkbootstrap**, with light/dark themes, a results table, progress counters, an activity log, cancellation, and CSV export. On startup it detects the desktop's system font (desktop settings or fontconfig on Linux, the native default on Windows/macOS) and applies it across the interface.
 
 ## Requirements
 

@@ -487,6 +487,19 @@ class UITests(unittest.TestCase):
         self.app.check_queue()
         self.assertNotIn('old-model', self.app.model_combo.cget('values'))
 
+    def test_app_uses_detected_system_fonts(self):
+        from tkinter import font
+        families = font.families()
+        self.assertIn(self.app.ui_family, families)
+        self.assertIn(self.app.mono_family, families)
+        self.assertEqual(font.nametofont('TkDefaultFont').actual('family'), self.app.ui_family)
+        self.assertEqual(font.nametofont('TkFixedFont').actual('family'), self.app.mono_family)
+        if any(family != 'fixed' for family in families):
+            self.assertNotEqual(self.app.ui_family, 'fixed')
+        self.app.dark_mode.set(True)
+        self.app.toggle_theme()
+        self.assertEqual(font.nametofont('TkDefaultFont').actual('family'), self.app.ui_family)
+
     def test_entry_points_share_the_same_application(self):
         import app
         import main

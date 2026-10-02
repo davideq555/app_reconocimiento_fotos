@@ -8,6 +8,7 @@ import ttkbootstrap as ttk
 from ttkbootstrap.widgets.scrolled import ScrolledFrame
 
 from .batch import DEFAULT_OUTPUT_DIR, check_ollama, check_openai_models, find_images, process_batch, write_csv
+from .fonts import apply_system_fonts, set_named_fonts
 from .providers import PROVIDERS, ProviderConfig
 
 
@@ -45,6 +46,7 @@ class OCRApp:
         self.status_var = tk.StringVar(value='Choose a folder to get started')
         self.connection_var = tk.StringVar(value='Local Ollama · not checked')
         self.stats = {name: tk.StringVar(value='0') for name in ('Images', 'Processed', 'With numbers', 'Errors')}
+        self.ui_family, self.mono_family, self.ui_size = apply_system_fonts()
 
         # Configuración de la interfaz
         self.setup_ui()
@@ -61,7 +63,7 @@ class OCRApp:
 
         header = ttk.Frame(main_frame)
         header.grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0, 20))
-        ttk.Label(header, text='Photo Recognition', font=('TkDefaultFont', 24, 'bold'), bootstyle='primary').pack(side=tk.LEFT)
+        ttk.Label(header, text='Photo Recognition', font=(self.ui_family, 24, 'bold'), bootstyle='primary').pack(side=tk.LEFT)
         ttk.Checkbutton(header, text='Dark mode', variable=self.dark_mode,
                         command=self.toggle_theme, bootstyle='round-toggle').pack(side=tk.RIGHT)
         self.key_button = ttk.Button(header, text='Add API key', command=self.open_key_dialog,
@@ -125,7 +127,7 @@ class OCRApp:
             summary.columnconfigure(column, weight=1)
             card = ttk.Frame(summary, padding=12, bootstyle='light')
             card.grid(row=0, column=column, sticky='ew', padx=(0, 8 if column < 3 else 0))
-            ttk.Label(card, textvariable=value, font=('TkDefaultFont', 22, 'bold'), bootstyle='inverse-light').pack(anchor='w')
+            ttk.Label(card, textvariable=value, font=(self.ui_family, 22, 'bold'), bootstyle='inverse-light').pack(anchor='w')
             ttk.Label(card, text=name, bootstyle='inverse-light').pack(anchor='w')
 
         notebook = ttk.Notebook(workspace)
@@ -158,7 +160,7 @@ class OCRApp:
         # Área de registro
         log_frame = ttk.Frame(notebook, padding=12)
         notebook.add(log_frame, text='  Activity  ')
-        self.log_area = tk.Text(log_frame, wrap='word', state=tk.DISABLED, borderwidth=0, font=('TkFixedFont', 10))
+        self.log_area = tk.Text(log_frame, wrap='word', state=tk.DISABLED, borderwidth=0, font=(self.mono_family, 10))
         log_scroll = ttk.Scrollbar(log_frame, command=self.log_area.yview)
         self.log_area.configure(yscrollcommand=log_scroll.set)
         self.log_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -284,6 +286,7 @@ class OCRApp:
 
     def toggle_theme(self):
         self.root.style.theme_use('darkly' if self.dark_mode.get() else 'flatly')
+        set_named_fonts(self.ui_family, self.mono_family, self.ui_size)
 
     def browse_folder(self):
         folder = filedialog.askdirectory(parent=self.root)
