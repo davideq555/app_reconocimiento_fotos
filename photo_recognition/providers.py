@@ -97,7 +97,32 @@ class CloudProvider:
         self.config = config
 
     def available_models(self):
-        raise ProviderError('Enter a vision model ID from your provider account.')
+        if self.config.provider != 'OpenAI':
+            raise ProviderError('Enter a vision model ID from your provider account.')
+        try:
+            response = requests.get(f'{self.config.endpoint}/models',
+                                    headers={'Authorization': f'Bearer {self.config.api_key}'},
+                                    timeout=5, allow_redirects=False)
+        except requests.RequestException:
+            raise ProviderError('Could not load OpenAI models. Check your connection and try again.') from None
+        try:
+            if response.status_code != 200:
+                reason = {
+                    401: 'Check your API key.',
+                    403: 'Check your API key permissions and account access.',
+                    429: 'Rate limit reached. Try again later.',
+                }.get(response.status_code, 'Could not load models. Try again later.')
+                raise ProviderError(f'OpenAI HTTP {response.status_code}: {reason}')
+            models = response.json()['data']
+            if not isinstance(models, list) or any(not isinstance(item, dict) or
+                                                  not isinstance(item.get('id'), str) or not item['id']
+                                                  for item in models):
+                raise ProviderError('OpenAI returned an invalid model list.')
+            return sorted({item['id'] for item in models})
+        except (ValueError, KeyError, TypeError, AttributeError):
+            raise ProviderError('OpenAI returned an invalid model list.') from None
+        finally:
+            response.close()
 
     def recognize(self, image_base64, prompt, model):
         if not model.strip():

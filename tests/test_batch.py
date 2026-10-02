@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from photo_recognition.batch import check_ollama, find_images, process_batch, write_csv
+from photo_recognition.batch import check_ollama, check_openai_models, find_images, process_batch, write_csv
 from photo_recognition.providers import ProviderConfig
 
 
@@ -91,6 +91,22 @@ class BatchTests(unittest.TestCase):
         processor.return_value.available_models.side_effect = RuntimeError('offline')
         check_ollama(self.events)
         self.assertEqual(self.events.get_nowait(), ('connection', ([], 'Ollama unavailable: offline')))
+
+    @patch('photo_recognition.batch.create_provider')
+    def test_openai_listing_worker_reports_only_model_ids_and_request_identity(self, create_provider):
+        create_provider.return_value.available_models.return_value = ['gpt-vision']
+        config = ProviderConfig('OpenAI', 'test-only-secret')
+        check_openai_models(self.events, config, 7)
+        create_provider.assert_called_once_with(config)
+        self.assertEqual(self.events.get_nowait(), ('openai_models', (7, ['gpt-vision'], None)))
+        self.assertNotIn('test-only-secret', str(list(self.events.queue)))
+
+    @patch('photo_recognition.batch.create_provider')
+    def test_openai_listing_worker_sanitizes_unexpected_exceptions(self, create_provider):
+        create_provider.side_effect = RuntimeError('test-only-secret')
+        check_openai_models(self.events, ProviderConfig('OpenAI', 'test-only-secret'), 3)
+        self.assertEqual(self.events.get_nowait(),
+                         ('openai_models', (3, [], 'Could not load OpenAI models. Try again.')))
 
     @patch('photo_recognition.batch.ImageProcessor')
     def test_provider_configuration_reaches_processor_without_entering_events(self, processor):

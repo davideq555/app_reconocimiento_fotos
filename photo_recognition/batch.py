@@ -2,12 +2,11 @@ import csv
 from pathlib import Path
 
 from .processor import ImageProcessor
+from .providers import ProviderError, create_provider
 
 
 IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tif', '.tiff'}
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent.parent / 'media'
-MODELS = ('llama3.2-vision', 'llava:7b', 'llava:13b', 'llava:34b')
-
 
 def find_images(folder):
     return sorted(
@@ -22,6 +21,16 @@ def check_ollama(events):
         events.put(('connection', (ImageProcessor().available_models(), None)))
     except Exception as error:
         events.put(('connection', ([], f'Ollama unavailable: {error}')))
+
+
+def check_openai_models(events, config, request_id):
+    try:
+        models = create_provider(config).available_models()
+        events.put(('openai_models', (request_id, models, None)))
+    except ProviderError as error:
+        events.put(('openai_models', (request_id, [], str(error))))
+    except Exception:
+        events.put(('openai_models', (request_id, [], 'Could not load OpenAI models. Try again.')))
 
 
 def process_batch(image_paths, model, output_dir, events, cancelled, processor=None, *, provider_config=None):

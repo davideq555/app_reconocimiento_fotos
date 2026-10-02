@@ -41,6 +41,53 @@ class ProviderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ProviderConfig('OpenAI', 'test-only-secret', 'https://example.test/v1').validate()
 
+    @patch('photo_recognition.providers.requests.get')
+    def test_openai_lists_accessible_model_ids_without_guessing_image_capability(self, get):
+        response = self.response({'data': [{'id': 'gpt-vision'}, {'id': 'text-model'}, {'id': 'gpt-vision'}]})
+        get.return_value = response
+        provider = create_provider(ProviderConfig('OpenAI', 'test-only-secret'))
+        self.assertEqual(provider.available_models(), ['gpt-vision', 'text-model'])
+        get.assert_called_once_with('https://api.openai.com/v1/models',
+                                    headers={'Authorization': 'Bearer test-only-secret'},
+                                    timeout=5, allow_redirects=False)
+        response.close.assert_called_once()
+
+    @patch('photo_recognition.providers.requests.get')
+    def test_openai_model_listing_never_displays_response_body_or_key(self, get):
+        provider = create_provider(ProviderConfig('OpenAI', 'test-only-secret'))
+        for status in (302, 401, 403, 429, 500):
+            with self.subTest(status=status):
+                response = self.response({'error': 'test-only-secret'}, status)
+                response.text = 'test-only-secret'
+                get.return_value = response
+                with self.assertRaises(ProviderError) as raised:
+                    provider.available_models()
+                self.assertIn(str(status), str(raised.exception))
+                self.assertNotIn('test-only-secret', str(raised.exception))
+                response.close.assert_called_once()
+
+    @patch('photo_recognition.providers.requests.get')
+    def test_openai_model_listing_sanitizes_bad_json_and_network_errors(self, get):
+        provider = create_provider(ProviderConfig('OpenAI', 'test-only-secret'))
+        for body in ({}, {'data': None}, {'data': [{'name': 'other-model'}]}):
+            with self.subTest(body=body):
+                response = self.response(body)
+                get.return_value = response
+                with self.assertRaises(ProviderError):
+                    provider.available_models()
+                response.close.assert_called_once()
+        get.side_effect = requests.ConnectionError('Authorization: test-only-secret')
+        with self.assertRaises(ProviderError) as raised:
+            provider.available_models()
+        self.assertNotIn('test-only-secret', str(raised.exception))
+
+    @patch('photo_recognition.providers.requests.get')
+    def test_other_cloud_providers_do_not_infer_model_discovery(self, get):
+        for name, base in (('Gemini', ''), ('OpenAI-compatible', 'https://example.test/v1')):
+            with self.subTest(provider=name), self.assertRaises(ProviderError):
+                create_provider(ProviderConfig(name, 'test-only-secret', base)).available_models()
+        get.assert_not_called()
+
     @patch('photo_recognition.providers.requests.post')
     def test_openai_sends_image_and_key_in_authorization_header(self, post):
         response = self.response(self.completion())

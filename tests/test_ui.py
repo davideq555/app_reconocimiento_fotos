@@ -29,7 +29,15 @@ class UITests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.folder = Path(self.temp.name)
         (self.folder / 'photo.jpg').touch()
+        ollama_patch = patch('photo_recognition.ui.check_ollama')
+        ollama_patch.start()
+        self.addCleanup(ollama_patch.stop)
+        openai_patch = patch('photo_recognition.ui.check_openai_models')
+        self.mock_openai_check = openai_patch.start()
+        self.addCleanup(openai_patch.stop)
         self.app = OCRApp(self.root)
+        self.apply_connection(['vision-model'])
+        self.app.model_name.set('vision-model')
         self.app.folder_path.set(str(self.folder))
         self.app.output_path.set(str(self.folder / 'output'))
 
@@ -41,6 +49,11 @@ class UITests(unittest.TestCase):
         self.root.after_cancel(self.app.after_id)
         for widget in self.root.winfo_children():
             widget.destroy()
+
+    def apply_connection(self, models, error=None):
+        self.app.result_queue.put(('connection', (models, error)))
+        self.root.after_cancel(self.app.after_id)
+        self.app.check_queue()
 
     def wait_for_completion(self):
         deadline = time.monotonic() + 3
@@ -79,7 +92,9 @@ class UITests(unittest.TestCase):
         self.app.start_processing()
         self.assertTrue(self.app.processing)
         self.assertTrue(self.app.folder_btn.instate(['disabled']))
+        self.assertTrue(self.app.model_combo.instate(['disabled']))
         self.wait_for_completion()
+        self.assertFalse(self.app.model_combo.instate(['disabled']))
         row = self.app.tree.item(self.app.tree.get_children()[0])['values']
         self.assertEqual(row[0], 'photo.jpg')
         self.assertEqual(str(row[1]), '1234')
@@ -148,7 +163,7 @@ class UITests(unittest.TestCase):
 
     def test_provider_switch_clears_key_and_updates_controls(self):
         self.select_cloud()
-        self.assertEqual(self.app.api_key_entry.cget('show'), '*')
+        self.assertEqual(self.app.key_button.cget('text'), 'Add API key')
         self.assertTrue(self.app.connection_btn.instate(['disabled']))
         self.app.provider_name.set('Gemini')
         self.app.provider_changed()
@@ -156,7 +171,10 @@ class UITests(unittest.TestCase):
         self.assertEqual(self.app.model_name.get(), '')
         self.app.provider_name.set('Ollama')
         self.app.provider_changed()
-        self.assertEqual(self.app.model_name.get(), 'llama3.2-vision')
+        self.assertEqual(self.app.model_name.get(), '')
+        self.assertEqual(tuple(self.app.model_combo.cget('values')), ())
+        self.assertTrue(self.app.connection_btn.instate(['disabled']))
+        self.apply_connection(['local-vision'])
         self.assertFalse(self.app.connection_btn.instate(['disabled']))
 
     @patch('photo_recognition.ui.messagebox.showerror')
@@ -189,7 +207,7 @@ class UITests(unittest.TestCase):
         processor.return_value.process_image.return_value = {'success': True, 'numeros_encontrados': [42]}
         self.app.start_processing()
         self.assertTrue(self.app.provider_combo.instate(['disabled']))
-        self.assertTrue(self.app.api_key_entry.instate(['disabled']))
+        self.assertTrue(self.app.key_button.instate(['disabled']))
         self.wait_for_completion()
         config = processor.call_args.kwargs['provider_config']
         self.assertEqual(config.provider, 'OpenAI')
@@ -216,6 +234,258 @@ class UITests(unittest.TestCase):
         self.assertIn('Failed', self.app.status_var.get())
         self.assertNotIn('test-only-secret', self.app.log_area.get('1.0', tk.END))
         self.assertFalse(self.app.process_btn.instate(['disabled']))
+
+    def test_initial_ollama_models_are_empty_until_local_check_completes(self):
+        self.app.provider_name.set('Ollama')
+        self.app.provider_changed()
+        self.assertEqual(tuple(self.app.model_combo.cget('values')), ())
+        self.assertEqual(self.app.model_name.get(), '')
+        self.assertFalse(self.app.model_combo.instate(['readonly']))
+
+    def test_refresh_replaces_model_list_and_invalid_selection(self):
+        self.app.check_connection()
+        self.assertEqual(tuple(self.app.model_combo.cget('values')), ())
+        self.assertEqual(self.app.model_name.get(), '')
+        self.apply_connection(['glm-ocr:latest', 'medgemma:4b'])
+        self.assertEqual(self.app.model_combo.cget('values'), ('glm-ocr:latest', 'medgemma:4b'))
+        self.assertEqual(self.app.model_name.get(), '')
+        self.app.model_name.set('medgemma:4b')
+        self.apply_connection(['new-vision:latest'])
+        self.assertEqual(self.app.model_combo.cget('values'), ('new-vision:latest',))
+        self.assertEqual(self.app.model_name.get(), '')
+
+    def test_empty_or_failed_local_check_clears_old_selection(self):
+        self.apply_connection([], None)
+        self.assertEqual(self.app.model_name.get(), '')
+        self.assertEqual(tuple(self.app.model_combo.cget('values')), ())
+        self.apply_connection(['vision-model'])
+        self.apply_connection([], 'offline')
+        self.assertEqual(self.app.model_name.get(), '')
+        self.assertEqual(tuple(self.app.model_combo.cget('values')), ())
+        self.assertIn('Unavailable', self.app.connection_var.get())
+
+    @patch('photo_recognition.ui.messagebox.showerror')
+    @patch('photo_recognition.batch.ImageProcessor')
+    def test_no_local_model_cannot_start_batch(self, processor, showerror):
+        self.apply_connection([])
+        self.app.start_processing()
+        processor.assert_not_called()
+        showerror.assert_called_once()
+
+    def test_visible_button_adds_key_without_exposing_it(self):
+        self.assertEqual(self.app.key_button.cget('text'), 'Add API key')
+        self.app.key_button.invoke()
+        self.assertTrue(self.app.key_dialog.winfo_exists())
+        self.assertEqual(self.app.key_dialog_entry.cget('show'), '*')
+        self.app.key_dialog_entry.insert(0, 'test-only-secret')
+        self.app.key_dialog_save.invoke()
+        self.assertEqual(self.app.provider_name.get(), 'OpenAI')
+        self.assertEqual(self.app.api_key.get(), 'test-only-secret')
+        self.assertEqual(self.app.key_button.cget('text'), 'Change API key')
+        self.assertNotIn('test-only-secret', self.app.key_button.cget('text'))
+
+    def test_cancel_key_dialog_does_not_overwrite_existing_key(self):
+        self.select_cloud()
+        self.app.key_button.invoke()
+        self.app.key_dialog_entry.delete(0, tk.END)
+        self.app.key_dialog_entry.insert(0, 'another-secret')
+        self.app.key_dialog_cancel.invoke()
+        self.assertEqual(self.app.api_key.get(), 'test-only-secret')
+
+    def wait_for_openai_models(self):
+        deadline = time.monotonic() + 3
+        while self.app.openai_models_pending and time.monotonic() < deadline:
+            self.root.update()
+            time.sleep(0.01)
+        self.assertFalse(self.app.openai_models_pending)
+
+    def test_saving_openai_key_fetches_model_list_without_autoselecting_text_model(self):
+        self.mock_openai_check.side_effect = lambda events, config, request_id: events.put(
+            ('openai_models', (request_id, ['text-model', 'gpt-vision'], None)))
+        self.app.key_button.invoke()
+        self.app.key_dialog_entry.insert(0, 'test-only-secret')
+        self.app.key_dialog_save.invoke()
+        self.wait_for_openai_models()
+        self.assertEqual(self.app.model_combo.cget('values'), ('text-model', 'gpt-vision'))
+        self.assertEqual(self.app.model_name.get(), '')
+        self.assertEqual(self.app.connection_btn.cget('text'), 'Refresh OpenAI models')
+        self.assertFalse(self.app.connection_btn.instate(['disabled']))
+        self.assertIn('not all support images', self.app.connection_var.get())
+        self.assertNotIn('test-only-secret', self.app.log_area.get('1.0', tk.END))
+
+    def test_search_filters_openai_models_case_insensitively_without_api_requests(self):
+        self.select_cloud()
+        self.app.model_name.set('')
+        self.app.result_queue.put(('openai_models', (self.app.openai_request_id,
+                                                     ['gpt-vision', 'gpt-4o', 'VISION-mini', 'text-only'], None)))
+        self.root.after_cancel(self.app.after_id)
+        self.app.check_queue()
+        self.assertEqual(self.app.match_count.get(), '4 models')
+        self.assertFalse(self.app.model_combo.instate(['readonly']))
+        self.assertFalse(hasattr(self.app, 'search_entry'))
+        self.app.model_combo.delete(0, tk.END)
+        self.app.model_combo.insert(0, '  vIsIoN  ')
+        self.assertEqual(self.app.model_combo.cget('values'), ('gpt-vision', 'VISION-mini'))
+        self.assertEqual(self.app.model_name.get(), '  vIsIoN  ')
+        self.assertEqual(self.app.match_count.get(), '2 of 4 models')
+        self.assertEqual(self.mock_openai_check.call_count, 0)
+        self.app.model_name.set('no-matches')
+        self.assertEqual(tuple(self.app.model_combo.cget('values')), ())
+        self.assertEqual(self.app.match_count.get(), '0 of 4 models')
+        self.app.model_name.set('')
+        self.assertEqual(len(self.app.model_combo.cget('values')), 4)
+
+    @patch('photo_recognition.ui.messagebox.askyesno', return_value=True)
+    @patch('photo_recognition.batch.ImageProcessor')
+    def test_selected_filtered_openai_model_is_used_for_recognition(self, processor, confirm):
+        self.select_cloud()
+        self.app.result_queue.put(('openai_models', (self.app.openai_request_id,
+                                                     ['gpt-vision', 'text-model'], None)))
+        self.root.after_cancel(self.app.after_id)
+        self.app.check_queue()
+        self.app.model_name.set('vision')
+        self.assertEqual(self.app.model_combo.cget('values'), ('gpt-vision',))
+        self.app.model_name.set('gpt-vision')
+        processor.return_value.process_image.return_value = {'success': True, 'numeros_encontrados': [12]}
+        self.app.start_processing()
+        self.wait_for_completion()
+        processor.return_value.process_image.assert_called_once_with(
+            str(self.folder / 'photo.jpg'), 'gpt-vision', output_dir=str(self.folder / 'output'))
+        confirm.assert_called_once()
+
+    @patch('photo_recognition.ui.messagebox.showerror')
+    @patch('photo_recognition.ui.messagebox.askyesno')
+    @patch('photo_recognition.batch.ImageProcessor')
+    def test_partial_openai_search_does_not_start_recognition(self, processor, confirm, showerror):
+        self.select_cloud()
+        self.app.result_queue.put(('openai_models', (self.app.openai_request_id,
+                                                     ['gpt-vision', 'text-model'], None)))
+        self.root.after_cancel(self.app.after_id)
+        self.app.check_queue()
+        self.app.model_combo.delete(0, tk.END)
+        self.app.model_combo.insert(0, 'vision')
+        self.app.start_processing()
+        processor.assert_not_called()
+        confirm.assert_not_called()
+        showerror.assert_called_once()
+        self.assertIn('complete model ID', showerror.call_args.args[1])
+
+    def test_search_keeps_only_valid_selection_and_preserves_manual_openai_id(self):
+        self.select_cloud()
+        self.app.result_queue.put(('openai_models', (self.app.openai_request_id,
+                                                     ['gpt-vision', 'text-model'], None)))
+        self.root.after_cancel(self.app.after_id)
+        self.app.check_queue()
+        self.app.model_name.set('text-model')
+        self.assertEqual(self.app.model_combo.cget('values'), ('gpt-vision', 'text-model'))
+        self.app.model_name.set('VISION')
+        self.assertEqual(self.app.model_combo.cget('values'), ('gpt-vision',))
+        self.assertEqual(self.app.model_name.get(), 'VISION')
+        self.app.model_name.set('custom-vision-model')
+        self.assertEqual(self.app.model_name.get(), 'custom-vision-model')
+
+    def test_search_stays_active_after_openai_refresh(self):
+        self.select_cloud()
+        self.app.model_name.set('vision')
+        self.mock_openai_check.side_effect = lambda events, config, request_id: events.put(
+            ('openai_models', (request_id, ['gpt-vision', 'text-model'], None)))
+        self.app.check_connection()
+        self.wait_for_openai_models()
+        self.assertEqual(self.app.model_name.get(), 'vision')
+        self.assertEqual(self.app.model_combo.cget('values'), ('gpt-vision',))
+        self.app.connection_btn.invoke()
+        self.wait_for_openai_models()
+        self.assertEqual(self.app.model_combo.cget('values'), ('gpt-vision',))
+        self.app.model_name.set('')
+        self.assertEqual(self.app.model_combo.cget('values'), ('gpt-vision', 'text-model'))
+
+    def test_search_filters_ollama_and_clears_unmatched_selection(self):
+        self.apply_connection(['glm-ocr:latest', 'medgemma:4b', 'qwen3:latest'])
+        self.app.model_name.set('GEM')
+        self.assertEqual(self.app.model_combo.cget('values'), ('medgemma:4b',))
+        self.assertEqual(self.app.model_name.get(), 'GEM')
+        self.app.model_name.set('missing')
+        self.assertEqual(self.app.model_name.get(), 'missing')
+        self.app.model_name.set('')
+        self.assertEqual(len(self.app.model_combo.cget('values')), 3)
+
+    @patch('photo_recognition.ui.messagebox.showerror')
+    @patch('photo_recognition.batch.ImageProcessor')
+    def test_ollama_search_text_is_not_submitted_as_model(self, processor, showerror):
+        self.apply_connection(['glm-ocr:latest', 'medgemma:4b'])
+        self.app.model_combo.delete(0, tk.END)
+        self.app.model_combo.insert(0, 'gem')
+        self.assertEqual(self.app.model_combo.cget('values'), ('medgemma:4b',))
+        self.app.start_processing()
+        processor.assert_not_called()
+        showerror.assert_called_once()
+
+    def test_search_is_reset_when_switching_to_manual_provider(self):
+        self.apply_connection(['vision-model', 'other-model'])
+        self.app.model_name.set('vision')
+        self.app.provider_name.set('Gemini')
+        self.app.provider_changed()
+        self.assertEqual(self.app.model_name.get(), '')
+        self.assertEqual(self.app.available_models, ())
+        self.assertFalse(hasattr(self.app, 'search_entry'))
+        self.app.model_name.set('manual-gemini-id')
+        self.assertEqual(self.app.model_name.get(), 'manual-gemini-id')
+        self.app.provider_name.set('Ollama')
+        self.app.provider_changed()
+        self.assertEqual(tuple(self.app.model_combo.cget('values')), ())
+
+    def test_openai_refresh_replaces_old_models(self):
+        self.select_cloud()
+        self.app.model_name.set('')
+        self.mock_openai_check.side_effect = lambda events, config, request_id: events.put(
+            ('openai_models', (request_id,
+                               ['first-model'] if self.mock_openai_check.call_count == 1 else ['second-model'], None)))
+        self.app.check_connection()
+        self.wait_for_openai_models()
+        self.assertEqual(self.app.model_combo.cget('values'), ('first-model',))
+        self.app.connection_btn.invoke()
+        self.wait_for_openai_models()
+        self.assertEqual(self.app.model_combo.cget('values'), ('second-model',))
+
+    def test_openai_lookup_failure_allows_manual_model_id(self):
+        self.select_cloud()
+        self.mock_openai_check.side_effect = lambda events, config, request_id: events.put(
+            ('openai_models', (request_id, [], 'OpenAI HTTP 401: Check your API key.')))
+        self.app.check_connection()
+        self.wait_for_openai_models()
+        self.assertEqual(tuple(self.app.model_combo.cget('values')), ())
+        self.app.model_name.set('manually-entered-vision-model')
+        self.assertEqual(self.app.model_name.get(), 'manually-entered-vision-model')
+        self.assertIn('401', self.app.connection_var.get())
+        self.assertNotIn('test-only-secret', self.app.log_area.get('1.0', tk.END))
+
+    def test_old_openai_key_cannot_replace_models_from_new_key(self):
+        self.select_cloud()
+        self.app.check_connection()
+        old_request = self.app.openai_request_id
+        self.app.key_button.invoke()
+        self.app.key_dialog_entry.delete(0, tk.END)
+        self.app.key_dialog_entry.insert(0, 'new-test-only-secret')
+        self.app.key_dialog_save.invoke()
+        new_request = self.app.openai_request_id
+        self.assertNotEqual(old_request, new_request)
+        self.app.result_queue.put(('openai_models', (old_request, ['old-model'], None)))
+        self.app.result_queue.put(('openai_models', (new_request, ['new-model'], None)))
+        self.root.after_cancel(self.app.after_id)
+        self.app.check_queue()
+        self.assertEqual(self.app.model_combo.cget('values'), ('new-model',))
+        self.assertNotIn('new-test-only-secret', self.app.log_area.get('1.0', tk.END))
+
+    def test_late_openai_response_is_ignored_after_provider_switch(self):
+        self.select_cloud()
+        self.app.check_connection()
+        previous_request = self.app.openai_request_id
+        self.app.provider_name.set('Gemini')
+        self.app.provider_changed()
+        self.app.result_queue.put(('openai_models', (previous_request, ['old-model'], None)))
+        self.root.after_cancel(self.app.after_id)
+        self.app.check_queue()
+        self.assertNotIn('old-model', self.app.model_combo.cget('values'))
 
     def test_entry_points_share_the_same_application(self):
         import app
