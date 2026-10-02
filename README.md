@@ -12,7 +12,17 @@ Tkinter is an OS/Python component, not a pip dependency. If `python -m tkinter` 
 
 ## Quick start
 
-From the repository root:
+On Linux, the bundled launcher creates the virtual environment, installs
+dependencies, and starts the app:
+
+```bash
+./run.sh
+```
+
+It reuses `.venv` on later runs and prints distro-specific instructions if
+Tkinter or venv support is missing.
+
+Manual setup works on every platform, from the repository root:
 
 ```bash
 python -m venv .venv
@@ -26,6 +36,26 @@ On Windows, activate the environment with `.venv\Scripts\activate` instead.
 For **local recognition**, run `ollama pull llama3.2-vision` once and, if Ollama is not already running, start `ollama serve` in a separate terminal. The local endpoint is `http://localhost:11434`. Ollama is not required when using a cloud provider.
 
 `python app.py` and `python -m photo_recognition` launch the **same application**. PyQt6, ttkthemes, and the Ollama Python SDK are no longer required.
+
+## Windows executable
+
+PyInstaller cannot cross-compile, so `dist/PhotoRecognition.exe` is built by
+the **Build Windows executable** GitHub Actions workflow
+(`.github/workflows/build-windows-exe.yml`). Run it manually from the Actions
+tab, or push a `v*` tag; the unsigned `.exe` appears as the
+`PhotoRecognition-windows` artifact (Windows SmartScreen may warn on first
+run). The workflow installs dependencies, runs the test suite, and builds with
+`PhotoRecognition.spec`, which bundles Tcl/Tk, Pillow's `_imagingtk`, and the
+ttkbootstrap theme files into a single windowed executable. To build locally
+on a Windows machine instead:
+
+```powershell
+pip install -r requirements.txt pyinstaller
+pyinstaller --noconfirm PhotoRecognition.spec
+```
+
+The executable still requires Ollama for local recognition or a cloud API key;
+it does not bundle either.
 
 ## Workflow
 
