@@ -1,4 +1,3 @@
-import os
 import subprocess
 import tempfile
 import tkinter as tk
@@ -58,16 +57,13 @@ class DetectionSourceTests(unittest.TestCase):
 
     def test_kde_font(self):
         with tempfile.TemporaryDirectory() as home:
-            config_dir = Path(home) / '.config'
-            config_dir.mkdir()
-            (config_dir / 'kdeglobals').write_text('[General]\nfont=Fira Sans,10,-1,5,50,0,0,0,0,0\n')
-            with patch.dict(os.environ, {'HOME': home}):
-                self.assertEqual(fonts._kde_ui_font(), ('Fira Sans', 10))
+            config_file = Path(home) / 'kdeglobals'
+            config_file.write_text('[General]\nfont=Fira Sans,10,-1,5,50,0,0,0,0,0\n')
+            self.assertEqual(fonts._kde_ui_font(config_file), ('Fira Sans', 10))
 
     def test_kde_missing_file(self):
         with tempfile.TemporaryDirectory() as home:
-            with patch.dict(os.environ, {'HOME': home}):
-                self.assertEqual(fonts._kde_ui_font(), (None, None))
+            self.assertEqual(fonts._kde_ui_font(Path(home) / 'nonexistent'), (None, None))
 
 
 class SystemFontTests(unittest.TestCase):

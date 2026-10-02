@@ -58,10 +58,11 @@ def _gsettings_font(key):
     return _parse_font_description(result.stdout)
 
 
-def _kde_ui_font():
+def _kde_ui_font(config_file=None):
     config = configparser.ConfigParser()
+    path = config_file if config_file is not None else Path.home() / '.config' / 'kdeglobals'
     try:
-        config.read(Path.home() / '.config' / 'kdeglobals')
+        config.read(path)
         raw = config.get('General', 'font')
     except (configparser.Error, OSError):
         return None, None
