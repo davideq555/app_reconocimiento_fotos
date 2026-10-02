@@ -350,7 +350,8 @@ class UITests(unittest.TestCase):
         self.app.start_processing()
         self.wait_for_completion()
         processor.return_value.process_image.assert_called_once_with(
-            str(self.folder / 'photo.jpg'), 'gpt-vision', output_dir=str(self.folder / 'output'))
+            str(self.folder / 'photo.jpg'), 'gpt-vision',
+            output_dir=str((self.folder / 'output').resolve()))
         confirm.assert_called_once()
 
     @patch('photo_recognition.ui.messagebox.showerror')
