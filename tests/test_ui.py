@@ -29,9 +29,9 @@ class UITests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.folder = Path(self.temp.name)
         (self.folder / 'photo.jpg').touch()
-        ollama_patch = patch('photo_recognition.ui.check_ollama')
-        ollama_patch.start()
-        self.addCleanup(ollama_patch.stop)
+        local_patch = patch('photo_recognition.ui.check_local')
+        self.mock_local_check = local_patch.start()
+        self.addCleanup(local_patch.stop)
         openai_patch = patch('photo_recognition.ui.check_openai_models')
         self.mock_openai_check = openai_patch.start()
         self.addCleanup(openai_patch.stop)
@@ -50,8 +50,8 @@ class UITests(unittest.TestCase):
         for widget in self.root.winfo_children():
             widget.destroy()
 
-    def apply_connection(self, models, error=None):
-        self.app.result_queue.put(('connection', (models, error)))
+    def apply_connection(self, models, error=None, provider='Ollama'):
+        self.app.result_queue.put(('connection', (provider, models, error)))
         self.root.after_cancel(self.app.after_id)
         self.app.check_queue()
 
@@ -218,7 +218,7 @@ class UITests(unittest.TestCase):
 
     def test_late_ollama_check_cannot_change_cloud_model_list(self):
         self.select_cloud('Gemini')
-        self.app.result_queue.put(('connection', (['local-model'], None)))
+        self.app.result_queue.put(('connection', ('Ollama', ['local-model'], None)))
         self.root.after_cancel(self.app.after_id)
         self.app.check_queue()
         self.assertTrue(self.app.connection_btn.instate(['disabled']))
@@ -487,6 +487,57 @@ class UITests(unittest.TestCase):
         self.root.after_cancel(self.app.after_id)
         self.app.check_queue()
         self.assertNotIn('old-model', self.app.model_combo.cget('values'))
+
+    def test_ocr_provider_checks_engine_and_autoselects_model(self):
+        self.app.provider_name.set('OCR (local)')
+        self.app.provider_changed()
+        self.assertEqual(self.app.connection_btn.cget('text'), 'Check OCR engine')
+        self.assertIn('OCR', self.app.connection_var.get())
+        deadline = time.monotonic() + 2
+        while not self.mock_local_check.called and time.monotonic() < deadline:
+            time.sleep(0.01)
+        config = self.mock_local_check.call_args.args[1]
+        self.assertEqual(config.provider, 'OCR (local)')
+        self.assertEqual(config.api_key, '')
+        self.apply_connection(['RapidOCR'], provider='OCR (local)')
+        self.assertEqual(self.app.model_name.get(), 'RapidOCR')
+        self.assertIn('ready', self.app.connection_var.get())
+
+    def test_stale_local_check_result_is_ignored(self):
+        self.app.provider_name.set('OCR (local)')
+        self.app.provider_changed()
+        self.apply_connection(['ollama-model'], provider='Ollama')
+        self.assertEqual(self.app.available_models, ())
+        self.assertEqual(self.app.model_name.get(), '')
+
+    @patch('photo_recognition.ui.messagebox.askyesno')
+    @patch('photo_recognition.batch.ImageProcessor')
+    def test_ocr_batch_needs_no_key_or_upload_consent(self, processor, confirm):
+        self.app.provider_name.set('OCR (local)')
+        self.app.provider_changed()
+        self.apply_connection(['RapidOCR'], provider='OCR (local)')
+        processor.return_value.process_image.return_value = {'success': True, 'numeros_encontrados': [42]}
+        self.app.start_processing()
+        self.wait_for_completion()
+        confirm.assert_not_called()
+        config = processor.call_args.kwargs['provider_config']
+        self.assertEqual(config.provider, 'OCR (local)')
+        self.assertEqual(config.api_key, '')
+        self.assertFalse(config.remote)
+        processor.return_value.process_image.assert_called_once_with(
+            str(self.folder / 'photo.jpg'), 'RapidOCR',
+            output_dir=str((self.folder / 'output').resolve()))
+
+    def test_key_dialog_offers_only_cloud_providers(self):
+        self.app.provider_name.set('OCR (local)')
+        self.app.provider_changed()
+        self.app.key_button.invoke()
+        form = self.app.key_dialog.winfo_children()[0]
+        selector = next(widget for widget in form.winfo_children()
+                        if widget.winfo_class() == 'TCombobox')
+        self.assertEqual(selector.cget('values'), ('OpenAI', 'Gemini', 'OpenAI-compatible'))
+        self.assertEqual(selector.get(), 'OpenAI')
+        self.app.key_dialog_cancel.invoke()
 
     def test_app_uses_detected_system_fonts(self):
         from tkinter import font

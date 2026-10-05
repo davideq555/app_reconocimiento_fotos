@@ -1,12 +1,12 @@
 # Photo Recognition
 
-A Python desktop application that finds participant numbers in photos using **Ollama, OpenAI, Gemini, or an OpenAI-compatible vision service**. The unified Tkinter interface uses **ttkbootstrap**, with light/dark themes, a results table, progress counters, an activity log, cancellation, and CSV export. On startup it detects the desktop's system font (desktop settings or fontconfig on Linux, the native default on Windows/macOS) and applies it across the interface.
+A Python desktop application that finds participant numbers in photos using **local OCR (RapidOCR), Ollama, OpenAI, Gemini, or an OpenAI-compatible vision service**. The unified Tkinter interface uses **ttkbootstrap**, with light/dark themes, a results table, progress counters, an activity log, cancellation, and CSV export. On startup it detects the desktop's system font (desktop settings or fontconfig on Linux, the native default on Windows/macOS) and applies it across the interface.
 
 ## Requirements
 
 - Python **3.10 or newer**, with Tkinter/Tk available.
-- Either local Ollama with a downloaded vision model, or an API key and access to a cloud vision model.
-- Internet access for installation and cloud recognition. Ollama recognition can run locally after downloading a model.
+- For AI recognition: local Ollama with a downloaded vision model, or an API key and access to a cloud vision model. **OCR (local)** needs neither — the RapidOCR models ship inside the pip package and run fully offline.
+- Internet access for installation and cloud recognition. Ollama and OCR recognition can run locally.
 
 Tkinter is an OS/Python component, not a pip dependency. If `python -m tkinter` fails, install your distribution's Tkinter/Tk package or use a Python build that includes it.
 
@@ -33,7 +33,7 @@ python main.py
 
 On Windows, activate the environment with `.venv\Scripts\activate` instead.
 
-For **local recognition**, run `ollama pull llama3.2-vision` once and, if Ollama is not already running, start `ollama serve` in a separate terminal. The local endpoint is `http://localhost:11434`. Ollama is not required when using a cloud provider.
+For **local recognition** you have two options. The **OCR (local)** provider works out of the box after `pip install` — its models are bundled, it needs no server or key, and it reads each photo at full resolution in under a second on CPU. Alternatively, run `ollama pull llama3.2-vision` once and, if Ollama is not already running, start `ollama serve` in a separate terminal; the local endpoint is `http://localhost:11434`. Neither is required when using a cloud provider.
 
 `python app.py` and `python -m photo_recognition` launch the **same application**. PyQt6, ttkthemes, and the Ollama Python SDK are no longer required.
 
@@ -59,8 +59,8 @@ it does not bundle either.
 
 ## Workflow
 
-1. Select an image folder. Supported extensions: PNG, JPG, JPEG, BMP, GIF, TIF, TIFF. Only files directly inside the folder are processed.
-2. Choose a **Provider** and vision model. Ollama automatically loads only models installed on your local server; **Check Ollama** refreshes the list. For OpenAI, use **Add API key** at the top of the window to paste your key in a masked dialog; the app then loads the models listed for that key. Not every listed model supports images. For Gemini and OpenAI-compatible services, enter the exact model ID manually.
+1. Select an image folder. Supported extensions: PNG, JPG, JPEG, BMP, GIF, TIF, TIFF, WEBP, AVIF. Only files directly inside the folder are processed.
+2. Choose a **Provider** and vision model. **OCR (local)** loads the bundled RapidOCR engine — no key, no uploads — and selects it automatically; it is fast but cannot tell foreground bib numbers from background text, so it keeps only digit detections of 1-5 characters above a confidence threshold, ordered by size. Ollama automatically loads only models installed on your local server; **Check Ollama** refreshes the list. For OpenAI, use **Add API key** at the top of the window to paste your key in a masked dialog; the app then loads the models listed for that key. Not every listed model supports images. For Gemini and OpenAI-compatible services, enter the exact model ID manually.
 3. Choose a separate output folder, or keep the default `media/` inside the repository.
 4. Click **Start recognition**. Cloud batches ask for confirmation before uploading any images. The table shows detected numbers or a per-image error, while the **Activity** tab contains details.
 5. Use **Export CSV** after completion or cancellation to save the current results.
@@ -73,6 +73,7 @@ The interface stays responsive while recognition or connection checks run in bac
 
 | Provider | What to enter | API |
 | --- | --- | --- |
+| OCR (local) | Nothing; the RapidOCR model is bundled | Local ONNX Runtime inference |
 | Ollama | Installed vision model ID; no API key | Local `/api/generate` |
 | OpenAI | API key; select an image-capable model from the fetched list or type its ID | OpenAI `/v1/models` for the list, `/v1/chat/completions` for recognition |
 | Gemini | Gemini Developer API key and a supported model ID | Google `generateContent` |
@@ -112,7 +113,7 @@ photo_recognition/
     ui.py             ttkbootstrap widgets and main-thread event handling
     batch.py          File discovery, worker events, cancellation, CSV export
     processor.py      Image preparation, number extraction, watermarking
-    providers.py      Provider configuration and Ollama/OpenAI/Gemini HTTP adapters
+    providers.py      Provider configuration, OCR engine, and Ollama/OpenAI/Gemini HTTP adapters
 main.py               Primary launcher
 app.py                Compatible alternate launcher and OCRApp import
 image_processor.py    Compatible ImageProcessor import and single-image CLI
@@ -140,6 +141,7 @@ Tests mock every provider and use temporary images; they do not download models,
 
 ## Troubleshooting
 
+- **OCR engine unavailable:** reinstall with `pip install rapidocr onnxruntime`. The engine detects every printed digit — including background signs, clocks and sponsor text — then keeps only confident 1-5 digit reads, so a bib seen in the background may still appear in results; review them before renaming.
 - **Ollama unavailable or empty model list:** verify the server is running and port 11434 is accessible. The model dropdown shows only names returned by the local server, and stays empty if it cannot be reached. Use **Check Ollama** to refresh, then read the Activity tab.
 - **Model not found or image input unsupported:** select an exact model ID available in your provider account, with image-input support. For Ollama, download the model first.
 - **HTTP 401/403:** check the API key, API access, and account permissions. A consumer chat subscription is not necessarily API access.

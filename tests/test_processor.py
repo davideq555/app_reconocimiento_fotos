@@ -30,6 +30,14 @@ class ProcessorTests(unittest.TestCase):
     def test_extract_numbers_is_unique_and_sorted(self):
         self.assertEqual(self.processor.extract_numbers('42, 12, 42'), [12, 42])
 
+    def test_path_input_provider_reads_the_original_file(self):
+        provider = Mock(image_input='path')
+        provider.recognize.return_value = '42, 0815'
+        self.processor.provider = provider
+        result = self.processor.process_image(str(self.photo))
+        self.assertEqual(provider.recognize.call_args.args[0], str(self.photo))
+        self.assertEqual(result['numeros_encontrados'], [42, 815])
+
     @patch('photo_recognition.providers.requests.post')
     def test_recognition_saves_numbered_watermarked_copy_without_changing_original(self, post):
         post.return_value = self.response('42, 12, 42')

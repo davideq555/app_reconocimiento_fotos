@@ -19,6 +19,20 @@ datas += pil_datas
 binaries += pil_binaries
 hiddenimports += pil_hiddenimports
 
+# rapidocr ships its ONNX models as package data; onnxruntime and opencv carry
+# native inference libraries the dependency scan can miss. Only rapidocr needs
+# hidden imports: for onnxruntime/cv2 we keep datas+binaries but skip their
+# collect_all hiddenimports (~200 tooling/training modules we never import)
+# and cv2's Qt GUI plugins (only used by cv2.imshow).
+ocr_datas, ocr_binaries, ocr_hiddenimports = collect_all('rapidocr')
+datas += ocr_datas
+binaries += ocr_binaries
+hiddenimports += ocr_hiddenimports
+for package in ('onnxruntime', 'cv2'):
+    pkg_datas, pkg_binaries, _ = collect_all(package)
+    datas += [entry for entry in pkg_datas if '/qt/' not in entry[0].replace('\\', '/')]
+    binaries += pkg_binaries
+
 # Standalone builds (uv, python-build-standalone) keep libtcl/libtk next to
 # libpython instead of a standard lib path, so the dependency scan misses them
 # and the bundled app fails with 'libtcl9.0.so: cannot open shared object'.

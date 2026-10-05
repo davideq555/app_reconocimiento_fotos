@@ -7,9 +7,9 @@ from tkinter import filedialog, messagebox
 import ttkbootstrap as ttk
 from ttkbootstrap.widgets.scrolled import ScrolledFrame
 
-from .batch import DEFAULT_OUTPUT_DIR, check_ollama, check_openai_models, find_images, process_batch, write_csv
+from .batch import DEFAULT_OUTPUT_DIR, check_local, check_openai_models, find_images, process_batch, write_csv
 from .fonts import apply_system_fonts, set_named_fonts
-from .providers import PROVIDERS, ProviderConfig
+from .providers import CLOUD_PROVIDERS, LOCAL_PROVIDERS, PROVIDERS, ProviderConfig
 
 
 class OCRApp:
@@ -83,7 +83,7 @@ class OCRApp:
         self.folder_entry.pack(fill=tk.X, pady=(0, 10))
         self.folder_btn = ttk.Button(folder_frame, text='Browse images', command=self.browse_folder, bootstyle='primary-outline')
         self.folder_btn.pack(fill=tk.X)
-        ttk.Label(folder_frame, text='JPG · PNG · BMP · GIF · TIFF', bootstyle='secondary').pack(anchor='w', pady=(10, 0))
+        ttk.Label(folder_frame, text='JPG · PNG · BMP · GIF · TIFF · WEBP · AVIF', bootstyle='secondary').pack(anchor='w', pady=(10, 0))
 
         settings = ttk.Labelframe(sidebar, text='  2. Recognition  ', padding=16)
         settings.pack(fill=tk.X, pady=(0, 16))
@@ -190,7 +190,8 @@ class OCRApp:
     def provider_changed(self, event=None):
         if self.processing:
             return
-        local = self.provider_name.get() == 'Ollama'
+        provider = self.provider_name.get()
+        local = provider in LOCAL_PROVIDERS
         self.openai_request_id += 1
         self.openai_models_pending = False
         self.api_key.set('')
@@ -200,16 +201,19 @@ class OCRApp:
         self.model_combo.configure(values=(), state=tk.NORMAL)
         self.key_button.configure(text='Add API key')
         self.url_fields.pack_forget()
-        if self.provider_name.get() == 'OpenAI-compatible':
+        if provider == 'OpenAI-compatible':
             self.url_fields.pack(fill=tk.X, before=self.connection_frame)
         self.connection_btn.configure(
-            text='Check Ollama' if local else 'Refresh OpenAI models' if self.provider_name.get() == 'OpenAI'
+            text='Check Ollama' if provider == 'Ollama' else
+            'Check OCR engine' if provider == 'OCR (local)' else
+            'Refresh OpenAI models' if provider == 'OpenAI'
             else 'Enter model ID manually',
             state=tk.NORMAL if local and not self.connection_pending else tk.DISABLED,
         )
         self.connection_var.set(
-            'Local Ollama · not checked' if local else
-            'Add an OpenAI API key to load your model list.' if self.provider_name.get() == 'OpenAI' else
+            'Local Ollama · not checked' if provider == 'Ollama' else
+            'Local OCR engine · not checked' if provider == 'OCR (local)' else
+            'Add an OpenAI API key to load your model list.' if provider == 'OpenAI' else
             'Enter a vision model ID from your account. Photos leave this device; API charges may apply.'
         )
         if local:
@@ -240,8 +244,8 @@ class OCRApp:
         form = ttk.Frame(dialog, padding=20)
         form.pack(fill=tk.BOTH, expand=True)
         ttk.Label(form, text='Cloud provider').pack(anchor='w', pady=(0, 6))
-        provider = tk.StringVar(value=self.provider_name.get() if self.provider_name.get() != 'Ollama' else 'OpenAI')
-        selector = ttk.Combobox(form, textvariable=provider, values=PROVIDERS[1:], state='readonly', width=32)
+        provider = tk.StringVar(value=self.provider_name.get() if self.provider_name.get() in CLOUD_PROVIDERS else 'OpenAI')
+        selector = ttk.Combobox(form, textvariable=provider, values=CLOUD_PROVIDERS, state='readonly', width=32)
         selector.pack(fill=tk.X, pady=(0, 12))
         ttk.Label(form, text='API key · kept in this session only').pack(anchor='w', pady=(0, 6))
         self.key_dialog_entry = ttk.Entry(form, show='*', width=36)
@@ -329,7 +333,7 @@ class OCRApp:
             config.validate()
             model_id = self.model_name.get().strip()
             if not config.remote and model_id not in self.available_models:
-                raise ValueError('Choose a model installed in your local Ollama. Refresh the list if needed.')
+                raise ValueError(f'Choose a model offered by {config.provider}. Refresh the list if needed.')
             if config.provider == 'OpenAI' and self.available_models and model_id not in self.available_models:
                 if any(model_id.casefold() in model.casefold() for model in self.available_models):
                     raise ValueError('Select a complete model ID from the dropdown before processing.')
@@ -376,7 +380,7 @@ class OCRApp:
             widget.configure(state=state)
         self.model_combo.configure(state=tk.DISABLED if processing else tk.NORMAL)
         self.provider_combo.configure(state=tk.DISABLED if processing else 'readonly')
-        can_refresh = (self.provider_name.get() == 'Ollama' and not self.connection_pending or
+        can_refresh = (self.provider_name.get() in LOCAL_PROVIDERS and not self.connection_pending or
                        self.provider_name.get() == 'OpenAI' and self.api_key.get() and
                        not self.openai_models_pending)
         self.connection_btn.configure(state=tk.NORMAL if not processing and can_refresh else tk.DISABLED)
@@ -427,9 +431,9 @@ class OCRApp:
                     # Mostrar los números encontrados
                     self.log(self.status_var.get())
                 elif msg_type == 'connection':
-                    models, error = data
+                    provider, models, error = data
                     self.connection_pending = False
-                    if self.provider_name.get() != 'Ollama':
+                    if provider != self.provider_name.get() or provider not in LOCAL_PROVIDERS:
                         continue
                     self.connection_btn.configure(state=tk.NORMAL if not self.processing else tk.DISABLED)
                     installed = tuple(dict.fromkeys(models)) if not error else ()
@@ -437,10 +441,17 @@ class OCRApp:
                         self.model_name.set('')
                     self.available_models = installed
                     self.filter_models()
-                    self.connection_var.set('Unavailable · see Activity' if error else
-                                            f'Connected · {len(installed)} installed models' if installed else
-                                            'Connected · no installed models')
-                    self.log(error or 'Ollama connection verified. Choose an installed vision model.')
+                    if provider == 'OCR (local)':
+                        if installed and self.model_name.get() not in installed:
+                            self.model_name.set(installed[0])
+                        self.connection_var.set('Engine unavailable · see Activity' if error else
+                                                'RapidOCR engine ready · numbers are read locally')
+                        self.log(error or 'Local OCR engine ready. No uploads or API key needed.')
+                    else:
+                        self.connection_var.set('Unavailable · see Activity' if error else
+                                                f'Connected · {len(installed)} installed models' if installed else
+                                                'Connected · no installed models')
+                        self.log(error or 'Ollama connection verified. Choose an installed vision model.')
                 elif msg_type == 'openai_models':
                     request_id, models, error = data
                     if request_id != self.openai_request_id or self.provider_name.get() != 'OpenAI':
@@ -484,17 +495,19 @@ class OCRApp:
             threading.Thread(target=check_openai_models, args=(self.result_queue, config, self.openai_request_id),
                              daemon=True).start()
             return
-        if self.provider_name.get() != 'Ollama' or self.connection_pending:
+        provider = self.provider_name.get()
+        if provider not in LOCAL_PROVIDERS or self.connection_pending:
             return
         self.connection_pending = True
         if self.model_name.get() in self.available_models:
             self.model_name.set('')
         self.available_models = ()
         self.filter_models()
-        # Verificar si Ollama está instalado
+        # Verificar el proveedor local
         self.connection_btn.configure(state=tk.DISABLED)
-        self.connection_var.set('Checking local Ollama...')
-        threading.Thread(target=check_ollama, args=(self.result_queue,), daemon=True).start()
+        self.connection_var.set('Checking local Ollama...' if provider == 'Ollama' else 'Loading OCR engine...')
+        threading.Thread(target=check_local, args=(self.result_queue, ProviderConfig(provider)),
+                         daemon=True).start()
 
     def export_to_csv(self):
         if not self.results or self.processing:

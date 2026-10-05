@@ -5,7 +5,7 @@ from .processor import ImageProcessor
 from .providers import ProviderError, create_provider
 
 
-IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tif', '.tiff'}
+IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tif', '.tiff', '.webp', '.avif'}
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent.parent / 'media'
 
 def find_images(folder):
@@ -16,11 +16,17 @@ def find_images(folder):
     )
 
 
-def check_ollama(events):
+def check_local(events, config=None):
+    """Verify a local provider (Ollama server or OCR engine) and list its models.
+
+    The provider name travels with the event so the UI can discard results
+    that arrive after the user switched providers.
+    """
+    provider = config.provider if config else 'Ollama'
     try:
-        events.put(('connection', (ImageProcessor().available_models(), None)))
+        events.put(('connection', (provider, ImageProcessor(provider_config=config).available_models(), None)))
     except Exception as error:
-        events.put(('connection', ([], f'Ollama unavailable: {error}')))
+        events.put(('connection', (provider, [], f'{provider} unavailable: {error}')))
 
 
 def check_openai_models(events, config, request_id):

@@ -150,18 +150,22 @@ class ImageProcessor:
             if not os.path.exists(image_path):
                 return {"error": f"El archivo {image_path} no existe"}
 
-            # Codificar la imagen a base64
-            try:
-                image_base64 = self.encode_image_to_base64(image_path)
-            except Exception as e:
-                return {"error": f"Error al procesar la imagen: {str(e)}"}
+            # Codificar la imagen a base64 (los proveedores locales de OCR leen
+            # el archivo directamente para conservar la resolución original)
+            if getattr(self.provider, 'image_input', 'base64') == 'path':
+                image_payload = image_path
+            else:
+                try:
+                    image_payload = self.encode_image_to_base64(image_path)
+                except Exception as e:
+                    return {"error": f"Error al procesar la imagen: {str(e)}"}
 
             # Preparar el prompt para el modelo
             prompt = """Analiza esta imagen y encuentra todos los números visibles de los participantes del primer plano.
             No consideres números que estén en el segundo plano, ni números que estén desenfocados.
             Responde solo con los números encontrados separados por comas."""
 
-            texto_completo = self.provider.recognize(image_base64, prompt, model_name)
+            texto_completo = self.provider.recognize(image_payload, prompt, model_name)
 
             # Extraer números del texto
             numeros_encontrados = self.extract_numbers(texto_completo)

@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from photo_recognition.batch import check_ollama, check_openai_models, find_images, process_batch, write_csv
+from photo_recognition.batch import check_local, check_openai_models, find_images, process_batch, write_csv
 from photo_recognition.providers import ProviderConfig
 
 
@@ -19,12 +19,12 @@ class BatchTests(unittest.TestCase):
         self.cancelled = threading.Event()
 
     def test_scan_accepts_images_only_and_sorts_names(self):
-        for name in ('b.JPG', 'a.png', 'notes.txt', 'c.tiff', 'd.gif'):
+        for name in ('b.JPG', 'a.png', 'notes.txt', 'c.tiff', 'd.gif', 'e.webp', 'f.avif'):
             (self.folder / name).touch()
         (self.folder / 'directory.jpg').mkdir()
         self.assertEqual(
             [path.name for path in find_images(self.folder)],
-            ['a.png', 'b.JPG', 'c.tiff', 'd.gif'],
+            ['a.png', 'b.JPG', 'c.tiff', 'd.gif', 'e.webp', 'f.avif'],
         )
 
     def test_batch_reports_real_results_progress_and_completion(self):
@@ -83,14 +83,22 @@ class BatchTests(unittest.TestCase):
     @patch('photo_recognition.batch.ImageProcessor')
     def test_ollama_check_reports_models(self, processor):
         processor.return_value.available_models.return_value = ['vision']
-        check_ollama(self.events)
-        self.assertEqual(self.events.get_nowait(), ('connection', (['vision'], None)))
+        check_local(self.events)
+        self.assertEqual(self.events.get_nowait(), ('connection', ('Ollama', ['vision'], None)))
 
     @patch('photo_recognition.batch.ImageProcessor')
     def test_ollama_check_reports_offline_server(self, processor):
         processor.return_value.available_models.side_effect = RuntimeError('offline')
-        check_ollama(self.events)
-        self.assertEqual(self.events.get_nowait(), ('connection', ([], 'Ollama unavailable: offline')))
+        check_local(self.events)
+        self.assertEqual(self.events.get_nowait(), ('connection', ('Ollama', [], 'Ollama unavailable: offline')))
+
+    @patch('photo_recognition.batch.ImageProcessor')
+    def test_local_check_carries_provider_identity(self, processor):
+        processor.return_value.available_models.return_value = ['RapidOCR']
+        config = ProviderConfig('OCR (local)')
+        check_local(self.events, config)
+        processor.assert_called_once_with(provider_config=config)
+        self.assertEqual(self.events.get_nowait(), ('connection', ('OCR (local)', ['RapidOCR'], None)))
 
     @patch('photo_recognition.batch.create_provider')
     def test_openai_listing_worker_reports_only_model_ids_and_request_identity(self, create_provider):
