@@ -30,6 +30,14 @@ class ProcessorTests(unittest.TestCase):
     def test_extract_numbers_is_unique_and_sorted(self):
         self.assertEqual(self.processor.extract_numbers('42, 12, 42'), [12, 42])
 
+    def test_path_input_provider_reads_the_original_file(self):
+        provider = Mock(image_input='path')
+        provider.recognize.return_value = '42, 0815'
+        self.processor.provider = provider
+        result = self.processor.process_image(str(self.photo))
+        self.assertEqual(provider.recognize.call_args.args[0], str(self.photo))
+        self.assertEqual(result['numeros_encontrados'], [42, 815])
+
     @patch('photo_recognition.providers.requests.post')
     def test_recognition_saves_numbered_watermarked_copy_without_changing_original(self, post):
         post.return_value = self.response('42, 12, 42')
@@ -39,10 +47,20 @@ class ProcessorTests(unittest.TestCase):
         self.assertEqual(result['numeros_encontrados'], [12, 42])
         self.assertEqual(Path(result['output_path']).name, 'race_n12_n42.jpg')
         with Image.open(result['output_path']) as image:
-            self.assertEqual(image.size, (30, 20))
+            self.assertEqual(image.size, (120, 80))
         self.assertEqual(self.photo.read_bytes(), original)
+        self.assertNotEqual(Path(result['output_path']).read_bytes(), original)
         self.assertEqual(post.call_args.kwargs['timeout'], (5, 180))
         post.return_value.close.assert_called_once()
+
+    @patch('photo_recognition.providers.requests.post')
+    def test_copy_without_watermark_is_byte_identical(self, post):
+        post.return_value = self.response('42')
+        original = self.photo.read_bytes()
+        result = self.processor.process_image(str(self.photo), output_dir=str(self.folder / 'out'),
+                                              watermark=False)
+        self.assertTrue(result['success'])
+        self.assertEqual(Path(result['output_path']).read_bytes(), original)
 
     @patch('photo_recognition.providers.requests.post')
     def test_no_numbers_does_not_save_output(self, post):
@@ -127,7 +145,7 @@ class ProcessorTests(unittest.TestCase):
                 self.assertEqual(Path(result['output_path']).name, 'race_n12_n42.jpg')
                 self.assertNotIn('test-only-secret', str(result))
                 with Image.open(result['output_path']) as image:
-                    self.assertEqual(image.size, (30, 20))
+                    self.assertEqual(image.size, (120, 80))
 
     def test_missing_file_is_reported(self):
         self.assertIn('error', self.processor.process_image(str(self.folder / 'missing.jpg')))

@@ -5,7 +5,7 @@ from .processor import ImageProcessor
 from .providers import ProviderError, create_provider
 
 
-IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tif', '.tiff'}
+IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tif', '.tiff', '.webp', '.avif'}
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent.parent / 'media'
 
 def find_images(folder):
@@ -16,11 +16,17 @@ def find_images(folder):
     )
 
 
-def check_ollama(events):
+def check_local(events, config=None):
+    """Verify a local provider (Ollama server or OCR engine) and list its models.
+
+    The provider name travels with the event so the UI can discard results
+    that arrive after the user switched providers.
+    """
+    provider = config.provider if config else 'Ollama'
     try:
-        events.put(('connection', (ImageProcessor().available_models(), None)))
+        events.put(('connection', (provider, ImageProcessor(provider_config=config).available_models(), None)))
     except Exception as error:
-        events.put(('connection', ([], f'Ollama unavailable: {error}')))
+        events.put(('connection', (provider, [], f'{provider} unavailable: {error}')))
 
 
 def check_openai_models(events, config, request_id):
@@ -33,7 +39,8 @@ def check_openai_models(events, config, request_id):
         events.put(('openai_models', (request_id, [], 'Could not load OpenAI models. Try again.')))
 
 
-def process_batch(image_paths, model, output_dir, events, cancelled, processor=None, *, provider_config=None):
+def process_batch(image_paths, model, output_dir, events, cancelled, processor=None, *,
+                  provider_config=None, watermark=True):
     total = len(image_paths)
     try:
         processor = processor or ImageProcessor(provider_config=provider_config)
@@ -43,7 +50,8 @@ def process_batch(image_paths, model, output_dir, events, cancelled, processor=N
             events.put(('log', f'Processing: {image_path.name}'))
             try:
                 # Procesar la imagen guardando en la carpeta media
-                result = processor.process_image(str(image_path), model, output_dir=str(output_dir))
+                result = processor.process_image(str(image_path), model, output_dir=str(output_dir),
+                                                 watermark=watermark)
             except Exception as error:
                 result = {'error': 'Provider request failed.' if provider_config and provider_config.remote else str(error)}
             events.put(('result', {'file': image_path.name, **result}))

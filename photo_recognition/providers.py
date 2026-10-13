@@ -6,7 +6,9 @@ from urllib.parse import urlsplit
 import requests
 
 
-PROVIDERS = ('Ollama', 'OpenAI', 'Gemini', 'OpenAI-compatible')
+PROVIDERS = ('Ollama', 'OCR (local)', 'OpenAI', 'Gemini', 'OpenAI-compatible')
+CLOUD_PROVIDERS = ('OpenAI', 'Gemini', 'OpenAI-compatible')
+LOCAL_PROVIDERS = ('Ollama', 'OCR (local)')
 
 
 class ProviderError(RuntimeError):
@@ -21,7 +23,7 @@ class ProviderConfig:
 
     @property
     def remote(self):
-        return self.provider != 'Ollama'
+        return self.provider in CLOUD_PROVIDERS
 
     @property
     def endpoint(self):
@@ -193,7 +195,69 @@ class CloudProvider:
             response.close()
 
 
+class OcrProvider:
+    """Local OCR through RapidOCR (PP-OCR models on ONNX Runtime).
+
+    Runs fully offline: no server, API key or uploads. Less precise than a
+    vision model — it cannot tell a foreground bib from background text, so
+    detections are filtered by confidence, digit shape and box size.
+    """
+
+    image_input = 'path'  # reads the file itself; skips the base64 resize
+    model_id = 'RapidOCR'
+
+    def __init__(self, engine=None, *, min_confidence=0.4, max_digits=5):
+        self._engine = engine
+        self.min_confidence = min_confidence
+        self.max_digits = max_digits
+
+    def _load_engine(self):
+        if self._engine is not None:
+            return
+        try:
+            from rapidocr import RapidOCR
+        except ImportError:
+            raise ProviderError(
+                'The OCR engine is not installed. Run: pip install rapidocr onnxruntime') from None
+        try:
+            self._engine = RapidOCR()
+        except Exception:
+            raise ProviderError('Could not initialize the local OCR engine.') from None
+
+    def available_models(self):
+        self._load_engine()
+        return [self.model_id]
+
+    def recognize(self, image_path, prompt, model):
+        self._load_engine()
+        try:
+            result = self._engine(str(image_path))
+        except Exception:
+            raise ProviderError('The OCR engine could not read this image.') from None
+        numbers = self.filter_numbers(result, self.min_confidence, self.max_digits)
+        return ', '.join(numbers)
+
+    @staticmethod
+    def filter_numbers(result, min_confidence=0.4, max_digits=5):
+        """Unique digit strings (1-max_digits chars), ordered by box area desc."""
+        if result is None:
+            return []
+        detections = []
+        for text, confidence, box in zip(result.txts or [], result.scores or [],
+                                         result.boxes if result.boxes is not None else []):
+            text = text.strip()
+            if confidence < min_confidence or not re.fullmatch(rf'\d{{1,{max_digits}}}', text):
+                continue
+            xs = [point[0] for point in box]
+            ys = [point[1] for point in box]
+            detections.append(((max(xs) - min(xs)) * (max(ys) - min(ys)), text))
+        detections.sort(key=lambda item: item[0], reverse=True)
+        return list(dict.fromkeys(text for _, text in detections))
+
+
 def create_provider(config=None, ollama_url='http://localhost:11434'):
     config = config or ProviderConfig()
     config.validate()
-    return CloudProvider(config) if config.remote else OllamaProvider(ollama_url)
+    if config.remote:
+        return CloudProvider(config)
+    return OcrProvider() if config.provider == 'OCR (local)' else OllamaProvider(ollama_url)

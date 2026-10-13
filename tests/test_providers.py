@@ -1,9 +1,11 @@
+import sys
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import requests
 
-from photo_recognition.providers import ProviderConfig, ProviderError, create_provider
+from photo_recognition.providers import OcrProvider, ProviderConfig, ProviderError, create_provider
 
 
 class ProviderTests(unittest.TestCase):
@@ -199,6 +201,62 @@ class ProviderTests(unittest.TestCase):
         result = create_provider(ProviderConfig('OpenAI', 'test-only-secret')).recognize('image', 'prompt', 'vision')
         self.assertNotIn('test-only-secret', result)
         self.assertIn('42', result)
+
+
+class OcrProviderTests(unittest.TestCase):
+    def box(self, x, y, width, height):
+        return [[x, y], [x + width, y], [x + width, y + height], [x, y + height]]
+
+    def result(self, *detections):
+        return SimpleNamespace(
+            txts=[text for text, _, _ in detections],
+            scores=[conf for _, conf, _ in detections],
+            boxes=[box for _, _, box in detections],
+        )
+
+    def test_ocr_is_a_local_provider_without_key_requirement(self):
+        config = ProviderConfig('OCR (local)')
+        config.validate()
+        self.assertFalse(config.remote)
+        self.assertIsInstance(create_provider(config), OcrProvider)
+
+    def test_filter_keeps_confident_pure_digits_ordered_by_area(self):
+        result = self.result(
+            ('42', 0.9, self.box(0, 0, 10, 10)),       # small bib
+            ('103', 0.9, self.box(0, 0, 50, 40)),      # largest detection first
+            ('10:42:17', 1.0, self.box(0, 0, 90, 30)), # clock text
+            ('21k', 0.9, self.box(0, 0, 60, 20)),      # shirt print, not pure digits
+            ('7', 0.3, self.box(0, 0, 30, 30)),        # below confidence threshold
+            ('123456', 0.9, self.box(0, 0, 80, 20)),   # longer than a bib number
+            ('42', 0.8, self.box(0, 0, 5, 5)),         # duplicate digit string
+        )
+        self.assertEqual(OcrProvider.filter_numbers(result), ['103', '42'])
+
+    def test_filter_tolerates_empty_or_missing_detections(self):
+        self.assertEqual(OcrProvider.filter_numbers(None), [])
+        empty = SimpleNamespace(txts=None, scores=None, boxes=None)
+        self.assertEqual(OcrProvider.filter_numbers(empty), [])
+
+    def test_recognize_reads_the_image_file_through_the_engine(self):
+        engine = Mock(return_value=self.result(('815', 0.99, self.box(0, 0, 40, 20))))
+        provider = OcrProvider(engine=engine)
+        self.assertEqual(provider.recognize('/tmp/photo.jpg', 'ignored prompt', 'RapidOCR'), '815')
+        engine.assert_called_once_with('/tmp/photo.jpg')
+
+    def test_available_models_verifies_the_engine_loads(self):
+        provider = OcrProvider(engine=Mock())
+        self.assertEqual(provider.available_models(), ['RapidOCR'])
+
+    def test_engine_failure_is_reported_as_provider_error(self):
+        provider = OcrProvider(engine=Mock(side_effect=RuntimeError('bad image')))
+        with self.assertRaises(ProviderError):
+            provider.recognize('/tmp/photo.jpg', 'prompt', 'RapidOCR')
+
+    def test_missing_rapidocr_package_is_a_provider_error(self):
+        provider = OcrProvider()
+        with patch.dict(sys.modules, {'rapidocr': None}):
+            with self.assertRaisesRegex(ProviderError, 'pip install'):
+                provider.available_models()
 
 
 if __name__ == '__main__':
