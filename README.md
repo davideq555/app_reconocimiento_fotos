@@ -96,8 +96,8 @@ Integration references: [OpenAI image inputs](https://developers.openai.com/api/
 ## Output behavior
 
 - Originals are left untouched.
-- Images with detected numbers get copies named like `photo_n12_n42.jpg`.
-- Copies receive a repeated **COPIA** watermark and are resized to 25% of their original width and height.
+- Images with detected numbers get copies named like `photo_n12_n42.jpg`, at the original resolution.
+- The **COPIA watermark on copies** checkbox (on by default) tiles a repeated **COPIA** watermark over each copy; disable it for byte-identical renamed copies. Watermarked copies save as quality-95 JPEG without chroma subsampling.
 - Existing output filenames are preserved; repeated processing adds a suffix such as `_1`.
 - PNG/JPEG output retains its format; other supported input formats are converted to JPEG. Animated images use their first frame.
 - Images without detected numbers remain in the results but do not produce an output copy.

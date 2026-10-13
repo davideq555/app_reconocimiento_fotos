@@ -351,7 +351,7 @@ class UITests(unittest.TestCase):
         self.wait_for_completion()
         processor.return_value.process_image.assert_called_once_with(
             str(self.folder / 'photo.jpg'), 'gpt-vision',
-            output_dir=str((self.folder / 'output').resolve()))
+            output_dir=str((self.folder / 'output').resolve()), watermark=True)
         confirm.assert_called_once()
 
     @patch('photo_recognition.ui.messagebox.showerror')
@@ -526,7 +526,7 @@ class UITests(unittest.TestCase):
         self.assertFalse(config.remote)
         processor.return_value.process_image.assert_called_once_with(
             str(self.folder / 'photo.jpg'), 'RapidOCR',
-            output_dir=str((self.folder / 'output').resolve()))
+            output_dir=str((self.folder / 'output').resolve()), watermark=True)
 
     def test_key_dialog_offers_only_cloud_providers(self):
         self.app.provider_name.set('OCR (local)')
@@ -538,6 +538,15 @@ class UITests(unittest.TestCase):
         self.assertEqual(selector.cget('values'), ('OpenAI', 'Gemini', 'OpenAI-compatible'))
         self.assertEqual(selector.get(), 'OpenAI')
         self.app.key_dialog_cancel.invoke()
+
+    @patch('photo_recognition.batch.ImageProcessor')
+    def test_watermark_checkbox_controls_output_copies(self, processor):
+        self.assertTrue(self.app.watermark_var.get())
+        self.app.watermark_var.set(False)
+        processor.return_value.process_image.return_value = {'success': True, 'numeros_encontrados': [42]}
+        self.app.start_processing()
+        self.wait_for_completion()
+        self.assertFalse(processor.return_value.process_image.call_args.kwargs['watermark'])
 
     def test_app_uses_detected_system_fonts(self):
         from tkinter import font

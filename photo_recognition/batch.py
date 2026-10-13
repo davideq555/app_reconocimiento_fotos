@@ -39,7 +39,8 @@ def check_openai_models(events, config, request_id):
         events.put(('openai_models', (request_id, [], 'Could not load OpenAI models. Try again.')))
 
 
-def process_batch(image_paths, model, output_dir, events, cancelled, processor=None, *, provider_config=None):
+def process_batch(image_paths, model, output_dir, events, cancelled, processor=None, *,
+                  provider_config=None, watermark=True):
     total = len(image_paths)
     try:
         processor = processor or ImageProcessor(provider_config=provider_config)
@@ -49,7 +50,8 @@ def process_batch(image_paths, model, output_dir, events, cancelled, processor=N
             events.put(('log', f'Processing: {image_path.name}'))
             try:
                 # Procesar la imagen guardando en la carpeta media
-                result = processor.process_image(str(image_path), model, output_dir=str(output_dir))
+                result = processor.process_image(str(image_path), model, output_dir=str(output_dir),
+                                                 watermark=watermark)
             except Exception as error:
                 result = {'error': 'Provider request failed.' if provider_config and provider_config.remote else str(error)}
             events.put(('result', {'file': image_path.name, **result}))

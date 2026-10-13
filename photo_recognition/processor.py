@@ -1,10 +1,43 @@
 import os
 import base64
 import shutil
+import subprocess
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 
 from .providers import create_provider
+
+
+WATERMARK_FONT_CANDIDATES = (
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+    '/usr/share/fonts/TTF/DejaVuSans-Bold.ttf',
+    '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf',
+    'C:/Windows/Fonts/arialbd.ttf',
+    'C:/Windows/Fonts/arial.ttf',
+    '/System/Library/Fonts/Supplemental/Arial Bold.ttf',
+    '/System/Library/Fonts/Helvetica.ttc',
+)
+
+
+def _load_watermark_font(size):
+    """Scalable font for the watermark; falls back to Pillow's default."""
+    candidates = []
+    fc_match = shutil.which('fc-match')
+    if fc_match:
+        try:
+            path = subprocess.check_output(
+                [fc_match, '-f', '%{file}', 'sans:bold'], timeout=3, text=True).strip()
+            if path:
+                candidates.append(path)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    candidates += WATERMARK_FONT_CANDIDATES
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    return ImageFont.load_default(size)
 
 
 class ImageProcessor:
@@ -40,16 +73,16 @@ class ImageProcessor:
         unique_numbers = sorted(set(int(num) for num in numbers))
         return unique_numbers
 
-    def add_watermark(self, image_path, output_path, text="COPIA", opacity=0.3, quality=85):
+    def add_watermark(self, image_path, output_path, text="COPIA", opacity=0.3, quality=95):
         """
-        Agrega una marca de agua repetitiva a la imagen, redimensionándola primero para mejor rendimiento.
+        Agrega una marca de agua repetitiva a la imagen conservando su resolución original.
 
         Args:
             image_path: Ruta de la imagen original
             output_path: Ruta donde se guardará la imagen con marca de agua
             text: Texto de la marca de agua
             opacity: Opacidad de la marca de agua (0.0 a 1.0)
-            quality: Calidad de la imagen de salida (1-100)
+            quality: Calidad JPEG de la imagen de salida (1-100)
         """
         try:
             # Abrir la imagen
@@ -58,22 +91,12 @@ class ImageProcessor:
                 if img.mode != 'RGBA':
                     img = img.convert('RGBA')
 
-                # Redimensionar la imagen para hacerla más manejable (25% del tamaño original)
-                original_size = img.size
-                new_size = (max(1, int(original_size[0] * 0.25)), max(1, int(original_size[1] * 0.25)))
-                img = img.resize(new_size, Image.Resampling.LANCZOS)
-
                 # Crear una capa para la marca de agua
                 watermark = Image.new('RGBA', img.size, (0, 0, 0, 0))
 
-                # Configurar la fuente con un tamaño fijo más grande
-                try:
-                    # Tamaño base para la fuente (ajustar según sea necesario)
-                    base_font_size = max(24, int(min(img.size) / 15))
-                    font = ImageFont.truetype("arial.ttf", base_font_size)
-                except OSError:
-                    # Si no se puede cargar la fuente, usar la predeterminada
-                    font = ImageFont.load_default()
+                # Fuente escalable proporcional al tamaño de la imagen
+                base_font_size = max(24, int(min(img.size) / 15))
+                font = _load_watermark_font(base_font_size)
 
                 # Crear un dibujo temporal para calcular el tamaño del texto
                 temp_draw = ImageDraw.Draw(Image.new('RGBA', (1, 1)))
@@ -124,23 +147,24 @@ class ImageProcessor:
                 # Convertir a RGB si es necesario para el formato de salida
                 if output_path.lower().endswith(('.jpg', '.jpeg')):
                     result = result.convert('RGB')
-
-                # Guardar la imagen con calidad reducida
-                result.save(output_path, quality=quality, optimize=True)
+                    result.save(output_path, quality=quality, subsampling=0, optimize=True)
+                else:
+                    result.save(output_path, optimize=True)
                 return True
 
         except Exception as e:
             print(f"Error al agregar marca de agua: {str(e)}")
             return False
 
-    def process_image(self, image_path, model_name="llama3.2-vision", output_dir=None):
+    def process_image(self, image_path, model_name="llama3.2-vision", output_dir=None, watermark=True):
         """
-        Procesa una imagen utilizando la API de Ollama para reconocer números.
+        Procesa una imagen utilizando el proveedor configurado para reconocer números.
 
         Args:
             image_path (str): Ruta a la imagen a procesar
-            model_name (str): Nombre del modelo de Ollama a utilizar
+            model_name (str): Nombre del modelo a utilizar
             output_dir (str, opcional): Directorio donde guardar la imagen procesada
+            watermark (bool): Si se agrega la marca de agua COPIA a la copia
 
         Returns:
             dict: Diccionario con los resultados del procesamiento
@@ -200,8 +224,8 @@ class ImageProcessor:
                     # Copiar la imagen original
                     shutil.copy2(image_path, output_path)
 
-                    # Agregar marca de agua
-                    if not self.add_watermark(output_path, output_path):
+                    # Agregar marca de agua si está activada
+                    if watermark and not self.add_watermark(output_path, output_path):
                         return {"error": "Could not watermark the output copy", "output_path": output_path}
 
                 except Exception as e:

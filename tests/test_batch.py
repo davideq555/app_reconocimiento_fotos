@@ -34,7 +34,8 @@ class BatchTests(unittest.TestCase):
         }
         photo = self.folder / 'photo.jpg'
         process_batch([photo], 'vision', self.folder, self.events, self.cancelled, processor)
-        processor.process_image.assert_called_once_with(str(photo), 'vision', output_dir=str(self.folder))
+        processor.process_image.assert_called_once_with(str(photo), 'vision', output_dir=str(self.folder),
+                                                        watermark=True)
         self.assertEqual(self.events.get_nowait(), ('log', 'Processing: photo.jpg'))
         kind, result = self.events.get_nowait()
         self.assertEqual(kind, 'result')

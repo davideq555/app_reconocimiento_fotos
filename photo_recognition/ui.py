@@ -33,6 +33,7 @@ class OCRApp:
         self.connection_pending = False
         self.openai_models_pending = False
         self.openai_request_id = 0
+        self.watermark_var = tk.BooleanVar(value=True)
         self.dark_mode = tk.BooleanVar(value=False)
         self.processing = False
         self.closed = False
@@ -114,7 +115,10 @@ class OCRApp:
         self.output_entry.pack(fill=tk.X, pady=(0, 10))
         self.output_btn = ttk.Button(output_frame, text='Choose destination', command=self.browse_output, bootstyle='secondary-outline')
         self.output_btn.pack(fill=tk.X)
-        ttk.Label(output_frame, text='Numbered filenames + COPIA watermark\n25% dimensions. Originals stay untouched.',
+        self.watermark_check = ttk.Checkbutton(output_frame, text='COPIA watermark on copies',
+                                             variable=self.watermark_var, bootstyle='round-toggle')
+        self.watermark_check.pack(anchor='w', pady=(12, 0))
+        ttk.Label(output_frame, text='Numbered filenames at original quality.\nOriginals stay untouched.',
                   bootstyle='secondary', wraplength=255).pack(anchor='w', pady=(12, 0))
 
         workspace = ttk.Frame(main_frame)
@@ -368,7 +372,7 @@ class OCRApp:
         # Iniciar hilo para el procesamiento
         self.worker = threading.Thread(target=process_batch, args=(
             images, self.model_name.get().strip(), output, self.result_queue, self.cancelled,
-        ), kwargs={'provider_config': config}, daemon=True)
+        ), kwargs={'provider_config': config, 'watermark': self.watermark_var.get()}, daemon=True)
         self.worker.start()
 
     def set_processing(self, processing):
@@ -376,7 +380,7 @@ class OCRApp:
         # Habilitar/deshabilitar botones
         state = tk.DISABLED if processing else tk.NORMAL
         for widget in (self.folder_entry, self.folder_btn, self.output_entry, self.output_btn,
-                       self.process_btn, self.key_button, self.base_url_entry):
+                       self.watermark_check, self.process_btn, self.key_button, self.base_url_entry):
             widget.configure(state=state)
         self.model_combo.configure(state=tk.DISABLED if processing else tk.NORMAL)
         self.provider_combo.configure(state=tk.DISABLED if processing else 'readonly')
